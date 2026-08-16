@@ -24,4 +24,3 @@ public:
     const TGAImage& specular() const;
 
 };
-
