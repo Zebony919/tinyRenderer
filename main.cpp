@@ -45,12 +45,15 @@ void line(int ax, int ay, int bx, int by, TGAImage &framebuffer, TGAColor color)
     }
 }
 
-// Learn
+/* 
+   Orthographic projection: drops the z-coordinate and remaps x,y 
+   from model space [-1,1] into screen pixel coordinates [0,width]/[0,height].
+   Not true perspective yet — no camera, no depth-based scaling.
+*/
 std::tuple<int, int> project(vec3 v) {
     return { (v.x + 1.) * width/2,
              (v.y + 1.) * height/2};
 }
-// Learn End
 
 int main(int argc, char** argv) {
     if (argc != 2) {
@@ -61,7 +64,10 @@ int main(int argc, char** argv) {
     Model model(argv[1]);
     TGAImage framebuffer(width, height, TGAImage::RGB);
 
-    // Learn
+    /*  
+        For each face, project its 3 vertices from 3D model space 
+        to 2D screen space, then draw the 3 edges connecting them.
+    */
     for (int i = 0; i < model.nfaces(); i++) {
         auto [ax, ay] = project(model.vert(i, 0).xyz());
         auto [bx, by] = project(model.vert(i, 1).xyz());
@@ -72,12 +78,15 @@ int main(int argc, char** argv) {
         line(cx, cy, ax, ay, framebuffer, red);
     }
 
+
+    /*
+        Separately, draw a white dot at every vertex position in the model.
+    */
     for (int i = 0; i < model.nverts(); i++) {
         vec3 v = model.vert(i).xyz();
         auto [x, y] = project(v);
         framebuffer.set(x, y, white);
     }
-    // Learn End
 
     framebuffer.write_tga_file("framebuffer.tga");
     return 0;
