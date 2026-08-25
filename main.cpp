@@ -46,15 +46,52 @@ void line(int ax, int ay, int bx, int by, TGAImage &framebuffer, TGAColor color)
 }
 
 void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &framebuffer, TGAColor color) {
-    line(ax, ay, bx, by, framebuffer, color);
-    line(bx, by, cx, cy, framebuffer, color);
-    line(cx, cy, ax, ay, framebuffer, color);
+    // Vertices a, b, and c are now sorted in ascending order so point a is lowest in terms of the y-axis
+    if (ay > by) {std::swap(ax, bx); std::swap(ay, by);}
+    if (ay > cy) {std::swap(ax, cx); std::swap(ay, cy);}
+    if (by > cy) {std::swap(bx, cx); std::swap(by, cy);}
+    // Boundary A is the line from the lowest point to the highest point
+    // So in this case that would be from point a (lowest) to point c (highest)
+
+    int totalHeight = cy - ay;
+
+    if (ay != by) { // Meaning that point a and b aren't horizontally parallel where there is no "bottom half" in a sense
+        int segmentHeight = by - ay;
+
+        for (int y = ay; y <= by; y++) {
+            int x1 = ax + ((cx - ax) * (y - ay)) / totalHeight;
+            int x2 = ax + ((bx - ax) * (y - ay)) / segmentHeight;
+            framebuffer.set(x1, y, color); // Boundary A line
+            framebuffer.set(x2, y, color); // Boundary B line
+            // Both lines are being drawn simultaneously
+
+            for (int x = std::min(x1, x2); x < std::max(x1, x2); x++) {
+                framebuffer.set(x, y, color);
+            } // Drawing a horizontal line between the two points who share the same y-axis
+            // Aparently using the line function isn't good for some future reasons but would 
+            // work for this specific case
+        }
+    }
+
+    if (by != cy) { // Meaning point b and c aren't horizontal
+        int segmentHeight = cy - by;
+
+        for (int y = by; y <= cy; y++) {
+            int x1 = ax + ((cx - ax) * (y - ay)) / totalHeight;
+            int x2 = bx + ((cx - bx) * (y - by)) / segmentHeight;
+
+            for (int x = std::min(x1, x2); x < std::max(x1, x2); x++) {
+                framebuffer.set(x, y, color);
+            }
+        }
+    }
+    // This loop is doing practically the same thing as the other but for the top half of the triangle
 }
 
 /* 
    Orthographic projection: drops the z-coordinate and remaps x,y 
    from model space [-1,1] into screen pixel coordinates [0,width]/[0,height].
-   Not true perspective yet — no camera, no depth-based scaling.
+   Not true perspective yet, no camera, no depth-based scaling.
 */
 std::tuple<int, int> project(vec3 v) {
     return { (v.x + 1.) * width/2,
