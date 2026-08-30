@@ -47,10 +47,11 @@ void line(int ax, int ay, int bx, int by, TGAImage &framebuffer, TGAColor color)
 
 double signed_triangle_area(int ax, int ay, int bx, int by, int cx, int cy) {
     return 0.5 * ((by - ay)*(bx + ax) + (cy - by)*(cx + bx) + (ay - cy)*(ax + cx));
-    // Learn this math
+    // Takes the sum of three trapezoids defined an edge, the x-axis, and two parallel lines going down
+    // from each end of the edge to the x-axis. 
 }
 
-void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &framebuffer, TGAColor color) {
+void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &framebuffer) {
     // Vertices a, b, and c are now sorted in ascending order so point a is lowest in terms of the y-axis
     if (ay > by) {std::swap(ax, bx); std::swap(ay, by);}
     if (ay > cy) {std::swap(ax, cx); std::swap(ay, cy);}
@@ -64,6 +65,8 @@ void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &fram
     int bbmaxy = std::max(std::max(ay, by), cy);
     double total_area = signed_triangle_area(ax, ay, bx, by, cx, cy);
 
+    // if (total_area < 1) return; // Doesn't draw triangles less than 1 pixel in size
+
     #pragma omp parallel for // Allows for parallel iteration where the compiler can split up the for loop amongst multiple cores
     for (int x = bbminx; x <= bbmaxx; x++) {
         for (int y = bbminy; y <= bbmaxy; y++) {
@@ -74,10 +77,19 @@ void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &fram
             if (alpha < 0 || beta < 0 || gamma < 0) continue; // Negative barycentric coordinate
             // If its negative then the pixel is outside the triangle bound
 
-            framebuffer.set(x, y, color);
+            int aR = 255, aG = 0,   aB = 0;   // vertex A = red
+            int bR = 0,   bG = 255, bB = 0;   // vertex B = green
+            int cR = 0,   cG = 0,   cB = 255; // vertex C = blue
+
+            unsigned char r = static_cast<unsigned char>(alpha * aR + beta * bR + gamma * cR);
+            unsigned char g = static_cast<unsigned char>(alpha * aG + beta * bG + gamma * cG);
+            unsigned char b = static_cast<unsigned char>(alpha * aB + beta * bB + gamma * cB);
+            TGAColor newColor = {b, g, r, 255};
+            // Allow triangle to be dynamically colors from the RGB range
+
+            framebuffer.set(x, y, newColor);
         }
     }
-    // Able to draw squares by iterating from the bottom left corner/bottom vertice to the upper right corner/upper vertice
 
     /* 
     int totalHeight = cy - ay;
@@ -124,7 +136,6 @@ std::tuple<int, int> project(vec3 v) {
 }
 
 int main(int argc, char** argv) {
-    
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " obj/model.obj" << std::endl;
         return 1; 
@@ -133,6 +144,10 @@ int main(int argc, char** argv) {
 
     Model model(argv[1]);
     TGAImage framebuffer(width, height, TGAImage::RGB);
+
+    int ax = 17, ay =  4, az =  13;
+    int bx = 55, by = 39, bz = 128;
+    int cx = 23, cy = 59, cz = 255;
 
     /*  
         For each face, project its 3 vertices from 3D model space 
@@ -144,9 +159,7 @@ int main(int argc, char** argv) {
         auto [bx, by] = project(model.vert(i, 1).xyz());
         auto [cx, cy] = project(model.vert(i, 2).xyz());
 
-        TGAColor rnd;
-        for (int c = 0; c <= 3; c++) rnd[c] = std::rand()%255;
-        drawTriangle(ax, ay, bx, by, cx, cy, framebuffer, rnd);
+        drawTriangle(ax, ay, bx, by, cx, cy, framebuffer);
     }
 
 
