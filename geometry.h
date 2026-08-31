@@ -184,3 +184,78 @@ template<> struct dt<1> {   // template specialization to stop the recursion
         return src[0][0];
     }
 };
+
+
+// My Classes
+/*
+struct Vec2 {
+    double x, y;
+};
+
+inline Vec2 operator+(const Vec2 &a, const Vec2 &b) {
+    return { a.x + b.x, a.y + b.y};
+}
+
+inline Vec2 operator-(const Vec2 &a, const Vec2 &b) {
+    return { a.x - b.x, a.y - b.y};
+}
+
+inline Vec2 operator*(const Vec2 &a, double s) {
+    return { a.x * s, a.y * s};
+}
+
+inline double dot(const Vec2 &a, const Vec2 &b) {
+    return ( a.x*b.x + a.y*b.y );
+}
+
+inline double cross2D(const Vec2 &a, const Vec2 &b) {
+    return { a.x * b.y - a.y * b.x };
+}
+
+
+struct Vec3 {
+    double x, y, z;
+};
+
+inline Vec3 operator+(const Vec3 &a, const Vec3 &b) {
+    return { a.x + b.x, a.y + b.y, a.z + b.z};
+}
+
+inline Vec3 operator-(const Vec3 &a, const Vec3 &b) {
+    return { a.x - b.x, a.y - b.y, a.z - b.z};
+}
+
+inline Vec3 operator*(const Vec3 &a, double s) {
+    return { a.x * s, a.y * s, a.z * s};
+}
+
+inline double dot(const Vec3 &a, const Vec3 &b) {
+    return ( a.x*b.x + a.y*b.y + a.z*b.z );
+}
+
+inline Vec3 cross(const Vec3 &a, const Vec3 &b) {
+    return { a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x };
+}
+
+
+struct Vec4 {
+    double x, y, z, w;
+};
+
+inline Vec4 operator+(const Vec4 &a, const Vec4 &b) {
+    return { a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w};
+}
+
+inline Vec4 operator-(const Vec4 &a, const Vec4 &b) {
+    return { a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w};
+}
+
+inline Vec4 operator*(const Vec4 &a, double s) {
+    return { a.x * s, a.y * s, a.z * s, a.w * s};
+}
+
+inline double dot(const Vec4 &a, const Vec4 &b) {
+    return ( a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w );
+}
+*/
+// End of file

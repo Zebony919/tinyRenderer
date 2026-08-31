@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES
 #include <cmath>
 #include <tuple>
 #include "geometry.h"
@@ -51,13 +52,16 @@ double signed_triangle_area(int ax, int ay, int bx, int by, int cx, int cy) {
     // from each end of the edge to the x-axis. 
 }
 
-void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &framebuffer) {
+void drawTriangle(int ax, int ay, int az, int bx, int by, int bz, int cx, int cy, int cz, TGAImage &framebuffer, TGAImage &zbuffer, TGAColor color) {
     // Vertices a, b, and c are now sorted in ascending order so point a is lowest in terms of the y-axis
+    /*
     if (ay > by) {std::swap(ax, bx); std::swap(ay, by);}
     if (ay > cy) {std::swap(ax, cx); std::swap(ay, cy);}
     if (by > cy) {std::swap(bx, cx); std::swap(by, cy);}
     // Boundary A is the line from the lowest point to the highest point
     // So in this case that would be from point a (lowest) to point c (highest)
+    // Use this ONLY for the scanline method
+    */
 
     int bbminx = std::min(std::min(ax, bx), cx); // Lowest vertice
     int bbminy = std::min(std::min(ay, by), cy);
@@ -65,7 +69,7 @@ void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &fram
     int bbmaxy = std::max(std::max(ay, by), cy);
     double total_area = signed_triangle_area(ax, ay, bx, by, cx, cy);
 
-    // if (total_area < 1) return; // Doesn't draw triangles less than 1 pixel in size
+    if (total_area < 1) return;
 
     #pragma omp parallel for // Allows for parallel iteration where the compiler can split up the for loop amongst multiple cores
     for (int x = bbminx; x <= bbmaxx; x++) {
@@ -77,6 +81,7 @@ void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &fram
             if (alpha < 0 || beta < 0 || gamma < 0) continue; // Negative barycentric coordinate
             // If its negative then the pixel is outside the triangle bound
 
+            /*
             int aR = 255, aG = 0,   aB = 0;   // vertex A = red
             int bR = 0,   bG = 255, bB = 0;   // vertex B = green
             int cR = 0,   cG = 0,   cB = 255; // vertex C = blue
@@ -86,12 +91,18 @@ void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &fram
             unsigned char b = static_cast<unsigned char>(alpha * aB + beta * bB + gamma * cB);
             TGAColor newColor = {b, g, r, 255};
             // Allow triangle to be dynamically colors from the RGB range
+            */
 
-            framebuffer.set(x, y, newColor);
+            unsigned char z = static_cast<unsigned char>(alpha * az + beta * bz + gamma * cz);
+            if (z <= zbuffer.get(x, y)[0]) continue;
+
+            zbuffer.set(x, y, {z});
+            framebuffer.set(x, y, color);
         }
     }
+    
 
-    /* 
+    /*
     int totalHeight = cy - ay;
 
     if (ay != by) { // Meaning that point a and b aren't horizontally parallel where there is no "bottom half" in a sense
@@ -101,14 +112,26 @@ void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &fram
             int x1 = ax + ((cx - ax) * (y - ay)) / totalHeight;
             int x2 = ax + ((bx - ax) * (y - ay)) / segmentHeight;
 
+            
             for (int x = std::min(x1, x2); x < std::max(x1, x2); x++) {
                 framebuffer.set(x, y, color);
             } // Drawing a horizontal line between the two points who share the same y-axis
             // Aparently using the line function isn't good for some future reasons but would 
             // work for this specific case
+            // Solid Triangles
+            
+
+            for (int x = std::min(x1, x2); x < std::min(x1, x2) + 2; x++) {
+                framebuffer.set(x, y, color);
+            } // Wireframe triangles
+
+            for (int x = std::max(x1, x2) - 2; x < std::max(x1, x2); x++) {
+                framebuffer.set(x, y, color);
+            }
+            // These two for loops only render a border of the triangle
         }
     }
-
+    
     if (by != cy) { // Meaning point b and c aren't horizontally parallel
         int segmentHeight = cy - by;
 
@@ -116,13 +139,24 @@ void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &fram
             int x1 = ax + ((cx - ax) * (y - ay)) / totalHeight;
             int x2 = bx + ((cx - bx) * (y - by)) / segmentHeight;
 
+            
             for (int x = std::min(x1, x2); x < std::max(x1, x2); x++) {
                 framebuffer.set(x, y, color);
+            } // Solid Triangles
+            
+
+            for (int x = std::min(x1, x2); x < std::min(x1, x2) + 2; x++) {
+                framebuffer.set(x, y, color);
+            } // Wireframe triangles
+
+            for (int x = std::max(x1, x2) - 2; x < std::max(x1, x2); x++) {
+                framebuffer.set(x, y, color);
             }
+            // These two for loops only render a border of the triangle
         }
     }
-    // This loop is doing practically the same thing as the other but for the top half of the triangle
     */
+    // This loop is doing practically the same thing as the other but for the top half of the triangle
 }
 
 /* 
@@ -130,9 +164,40 @@ void drawTriangle(int ax, int ay, int bx, int by, int cx, int cy, TGAImage &fram
    from model space [-1,1] into screen pixel coordinates [0,width]/[0,height].
    Not true perspective yet, no camera, no depth-based scaling.
 */
-std::tuple<int, int> project(vec3 v) {
+std::tuple<int, int, int> project(vec3 v) {
     return { (v.x + 1.) * width/2,
-             (v.y + 1.) * height/2};
+             (v.y + 1.) * height/2,
+             (v.z + 1.) *   255./2 };
+}
+
+/*
+vec3 rot(vec3 v) {
+    constexpr double a = 11 * M_PI / 6;
+    const mat<3,3> Ry = {{{std::cos(a), 0, std::sin(a)}, {0,1,0}, {-std::sin(a), 0, std::cos(a)}}};
+    return Ry * v;
+}
+// This way of rotating is not the cheapest version as you are computing Ry for every pixel even 
+// even though it doesn't change value since you are rotating every pixel by the same angle
+*/
+
+// Better version since you call it once before the loop in main
+// These are actually the three rotation matrices which you can multiply to alter more than one axis
+// or just use one to rotate around a fixed axis
+mat<3, 3> rotateY(double radian) {
+    return {{{std::cos(radian), 0, std::sin(radian)}, {0,1,0}, {-std::sin(radian), 0, std::cos(radian)}}};
+}
+
+mat<3, 3> rotateX(double radian) {
+    return {{{1, 0, 0}, {0, std::cos(radian), -std::sin(radian)}, {0, std::sin(radian), std::cos(radian)}}};
+}
+
+mat<3, 3> rotateZ(double radian) {
+    return {{{std::cos(radian), -std::sin(radian), 0}, {std::sin(radian), std::cos(radian), 0}, {0, 0, 1}}};
+}
+
+vec3 perspective(vec3 v) {
+    constexpr double camera = 3.0;
+    return v / (1 - v.z / camera);
 }
 
 int main(int argc, char** argv) {
@@ -144,22 +209,25 @@ int main(int argc, char** argv) {
 
     Model model(argv[1]);
     TGAImage framebuffer(width, height, TGAImage::RGB);
-
-    int ax = 17, ay =  4, az =  13;
-    int bx = 55, by = 39, bz = 128;
-    int cx = 23, cy = 59, cz = 255;
+    TGAImage zbuffer(width, height, TGAImage::GRAYSCALE);
 
     /*  
         For each face, project its 3 vertices from 3D model space 
         to 2D screen space, then draw the 3 edges connecting them.
     */
+
+    constexpr double radians = 11 * M_PI / 6;
+    const mat<3, 3> Ry = rotateY(radians);
     
     for (int i = 0; i < model.nfaces(); i++) {
-        auto [ax, ay] = project(model.vert(i, 0).xyz());
-        auto [bx, by] = project(model.vert(i, 1).xyz());
-        auto [cx, cy] = project(model.vert(i, 2).xyz());
+        auto [ax, ay, az] = project(perspective(Ry * model.vert(i, 0).xyz()));
+        auto [bx, by, bz] = project(perspective(Ry * model.vert(i, 1).xyz()));
+        auto [cx, cy, cz] = project(perspective(Ry * model.vert(i, 2).xyz()));
 
-        drawTriangle(ax, ay, bx, by, cx, cy, framebuffer);
+        TGAColor rnd;
+        for (int c=0; c<3; c++) rnd[c] = std::rand()%255;
+
+        drawTriangle(ax, ay, az, bx, by, bz, cx, cy, cz, framebuffer, zbuffer, rnd);
     }
 
 
@@ -176,6 +244,7 @@ int main(int argc, char** argv) {
     */
 
     framebuffer.write_tga_file("framebuffer.tga");
+    zbuffer.write_tga_file("zbuffer.tga");
     std::cout << "Rendered successfully, wrote framebuffer.tga\n";
     return 0;
 }
