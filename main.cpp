@@ -211,14 +211,10 @@ int main(int argc, char** argv) {
     TGAImage framebuffer(width, height, TGAImage::RGB);
     TGAImage zbuffer(width, height, TGAImage::GRAYSCALE);
 
-    /*  
-        For each face, project its 3 vertices from 3D model space 
-        to 2D screen space, then draw the 3 edges connecting them.
-    */
-
-    constexpr double radians = 11 * M_PI / 6;
-    const mat<3, 3> Ry = rotateY(radians);
     
+    constexpr double radians = 13 * M_PI / 6;
+    const mat<3, 3> Ry = rotateY(radians);
+
     for (int i = 0; i < model.nfaces(); i++) {
         auto [ax, ay, az] = project(perspective(Ry * model.vert(i, 0).xyz()));
         auto [bx, by, bz] = project(perspective(Ry * model.vert(i, 1).xyz()));
@@ -229,8 +225,38 @@ int main(int argc, char** argv) {
 
         drawTriangle(ax, ay, az, bx, by, bz, cx, cy, cz, framebuffer, zbuffer, rnd);
     }
+    
 
+    /*
+    // Rotation of the model in real time
+    int numOfFrames = 120;
+    for (int frame = 0; frame <= numOfFrames; frame++) {
+        double radians = (2 * M_PI * frame) / numOfFrames;
+        const mat<3, 3> Ry = rotateY(radians);
+        TGAImage zbuffer(width, height, TGAImage::GRAYSCALE);
+        
+        for (int i = 0; i < model.nfaces(); i++) {
+            auto [ax, ay, az] = project(perspective(Ry * model.vert(i, 0).xyz()));
+            auto [bx, by, bz] = project(perspective(Ry * model.vert(i, 1).xyz()));
+            auto [cx, cy, cz] = project(perspective(Ry * model.vert(i, 2).xyz()));
 
+            TGAColor rnd;
+            for (int c=0; c<3; c++) rnd[c] = std::rand()%255;
+
+            drawTriangle(ax, ay, az, bx, by, bz, cx, cy, cz, framebuffer, zbuffer, rnd);
+        }
+
+        char filename[64];
+        std::sprintf(filename, "frame_%03d.tga", frame);
+        zbuffer.write_tga_file(filename);
+    }
+    */
+    
+
+    /*  
+        For each face, project its 3 vertices from 3D model space 
+        to 2D screen space, then draw the 3 edges connecting them.
+    */
 
     /*
         Separately, draw a white dot at every vertex position in the model.
@@ -243,8 +269,11 @@ int main(int argc, char** argv) {
 
     */
 
+    
     framebuffer.write_tga_file("framebuffer.tga");
     zbuffer.write_tga_file("zbuffer.tga");
+    
+
     std::cout << "Rendered successfully, wrote framebuffer.tga\n";
     return 0;
 }
