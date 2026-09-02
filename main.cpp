@@ -3,13 +3,17 @@
 #include <tuple>
 #include <algorithm>
 #include <limits>
+#include <cstdlib>
 #include "geometry.h"
 #include "model.h"
 #include "tgaimage.h"
+#include "our_gl.h"
 
 constexpr int width  = 800;
 constexpr int height = 800;
-mat<4, 4> ModelView, Viewport, Perspective;
+
+extern mat<4, 4> ModelView, Perspective;
+extern std::vector<double> zbuffer;
 
 constexpr TGAColor white   = {255, 255, 255, 255}; // attention, BGRA order
 constexpr TGAColor green   = {  0, 255,   0, 255};
@@ -162,35 +166,6 @@ void drawTriangle(int ax, int ay, int az, int bx, int by, int bz, int cx, int cy
     // This loop is doing practically the same thing as the other but for the top half of the triangle
 }
 
-void rasterize(const vec4 clip[3], std::vector<double> &zbuffer, TGAImage &framebuffer, TGAImage &actualZbuffer3, const TGAColor color) {
-    vec4 ndc[3] = { clip[0] / clip[0].w, clip[1] / clip[1].w, clip[2] / clip[2].w }; // Normalized Device Coordinates
-    vec2 screen[3] = { (Viewport * ndc[0]).xy(), (Viewport * ndc[1]).xy(), (Viewport * ndc[2]).xy() }; // Screen Coordinates
-
-    mat<3, 3> ABC = {{ {screen[0].x, screen[0].y, 1.0}, {screen[1].x, screen[1].y, 1.0}, {screen[2].x, screen[2].y, 1.0} }}; // Three vertices
-    if (ABC.det() < 1) return;
-
-    auto [bbminx, bbmaxx] = std::minmax({screen[0].x, screen[1].x, screen[2].x}); // Bounding box for triangle
-    auto [bbminy, bbmaxy] = std::minmax({screen[0].y, screen[1].y, screen[2].y}); // defined by the bottom left and top right points
-
-    #pragma omp parallel for
-    for (int x = std::max<int>(bbminx, 0); x <= std::min<int>(bbmaxx, framebuffer.width() - 1); x++) {
-        for (int y = std::max<int>(bbminy, 0); y <= std::min<int>(bbmaxy, framebuffer.height() - 1); y++) {
-            vec3 bc = ABC.invert_transpose() * vec3{static_cast<double>(x), static_cast<double>(y), 1.0};
-
-            if (bc.x < 0 || bc.y < 0 || bc.z < 0) continue; // Negative barycentric coordinate means vertex outside triangle
-
-            double z = bc * vec3{ ndc[0].z, ndc[1].z, ndc[2].z };
-            if (z <= zbuffer[x + y * framebuffer.width()]) continue; // Depth check on whether current pixel is infront of already drawn pixel
-
-            unsigned char z2 = static_cast<unsigned char>((z * 0.5 + 0.5) * 255);
-
-            zbuffer[x + y * framebuffer.width()] = z;
-            framebuffer.set(x, y, color);
-            actualZbuffer3.set(x, y, {z2});
-        }
-    }
-}
-
 /* 
    Orthographic projection: drops the z-coordinate and remaps x,y 
    from model space [-1,1] into screen pixel coordinates [0,width]/[0,height].
@@ -232,22 +207,25 @@ vec3 perspective(vec3 v) {
     return v / (1 - v.z / camera);
 }
 
-void viewport(const int x, const int y, const int w, const int h) {
-    Viewport = {{{w/2.0, 0, 0, x + w/2.0}, {0, h/2.0, 0, y + h/2.0}, {0, 0, 1, 0}, {0, 0, 0, 1}}};
-}
+struct RandomShader : IShader {
+    const Model &model;
+    TGAColor color = {};
+    vec3 tri[3];
 
-void perspective(const double f) {
-    Perspective = {{{1, 0, 0, 0}, {0, 1, 0, 0}, {0, 0, 1, 0}, {0, 0, -1/f, 1}}};
-}
+    RandomShader(const Model &m) : model(m) {
+    }
 
-void lookat(const vec3 eye, const vec3 center, const vec3 up) {
-    vec3 n = normalized(eye - center);
-    vec3 l = normalized((cross(up, n)));
-    vec3 m = normalized((cross(n, l)));
+    virtual vec4 vertex(const int face, const int vert) {
+        vec4 v = model.vert(face, vert);
+        vec4 gl_Position = ModelView * vec4{v.x, v.y, v.z, 1.0};
+        tri[vert] = gl_Position.xyz();
+        return Perspective * gl_Position;
+    }
 
-    ModelView = mat<4, 4>{{{l.x, l.y, l.z, 0}, {m.x, m.y, m.z, 0}, {n.x, n.y, n.z, 0}, {0, 0, 0, 1}}} * // Camera Matrix
-                mat<4, 4>{{{1, 0, 0, -center.x}, {0, 1, 0, -center.y}, {0, 0, 1, -center.z}, {0, 0, 0, 1}}}; // Translation Matrix
-}
+    virtual std::pair<bool, TGAColor> fragment(const vec3 bar) const {
+        return {false, color};
+    }
+};
 
 int main(int argc, char** argv) {
     if (argc != 2) {
@@ -276,13 +254,14 @@ int main(int argc, char** argv) {
     }
 
     // Rasterize method
-    constexpr vec3 eye{-1, 0, 2}; // camera position
+    constexpr vec3 eye{-4, 0, 2}; // camera position
     constexpr vec3 center{0, 0, 0}; // camera direction
     constexpr vec3 up{0, 1, 0}; // camera vertical orientation 
 
     lookat(eye, center, up);
-    perspective(norm(eye - center));
-    viewport(width/16, height/16, width * 7/8, height * 7/8);
+    init_perspective(norm(eye - center));
+    init_viewport(width/16, height/16, width * 7/8, height * 7/8);
+    init_zbuffer(width, height);
 
     TGAImage framebuffer2(width, height, TGAImage::RGB);
     TGAImage actualZbuffer3(width, height, TGAImage::GRAYSCALE);
@@ -290,17 +269,19 @@ int main(int argc, char** argv) {
 
     for (int m = 1; m < argc; m++) {
         Model model(argv[m]);
+        RandomShader shader(model);
 
-        for (int i = 0; i < model.nfaces(); i++) {
-            vec4 clip[3];
-            for (int d : {0, 1, 2}) {
-                vec4 v =  model.vert(i, d);
-                clip[d] = Perspective * ModelView * v;
-            }
+        for (int f = 0; f < model.nfaces(); f++) {
+            shader.color = {    static_cast<unsigned char>(std::rand()%255), 
+                                static_cast<unsigned char>(std::rand()%255), 
+                                static_cast<unsigned char>(std::rand()%255), 
+                                255  };
 
-            TGAColor rnd;
-            for (int c = 0; c < 3; c++) rnd[c] = std::rand() % 255;
-            rasterize(clip, zbuffer2, framebuffer2, actualZbuffer3, rnd);
+            Triangle clip = { shader.vertex(f, 0),
+                              shader.vertex(f, 1),
+                              shader.vertex(f, 2) };
+
+            rasterize(clip, shader, zbuffer2, framebuffer2, actualZbuffer3);
         }
     }
 
