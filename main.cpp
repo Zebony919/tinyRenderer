@@ -267,6 +267,14 @@ int main(int argc, char** argv) {
     TGAImage actualZbuffer3(width, height, TGAImage::GRAYSCALE);
     std::vector<double> zbuffer2(width * height, -std::numeric_limits<double>::max());
 
+    // Change Background of TGA file by filling the entire scene before rendering
+    TGAColor backgroundColor = {250, 250, 250, 255}; // dark gray, BGRA order remember
+    for (int x = 0; x < width; x++) {
+        for (int y = 0; y < height; y++) {
+            framebuffer2.set(x, y, backgroundColor);
+        }
+    }
+
     for (int m = 1; m < argc; m++) {
         Model model(argv[m]);
         RandomShader shader(model);
