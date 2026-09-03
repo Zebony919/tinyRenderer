@@ -227,6 +227,57 @@ struct RandomShader : IShader {
     }
 };
 
+struct PhongShader : IShader {
+    const Model &model;
+    TGAColor color = {};
+    vec3 tri[3]; // Vertex position in eye/camera space
+    vec3 varying_normals[3]; // Normal vector, normalized
+
+    PhongShader(const Model &m) : model(m) {}
+
+    virtual vec4 vertex(const int face, const int vert) { // Literally just returning a vertex from the model
+        vec4 v = model.vert(face, vert);
+        vec4 gl_position = ModelView * vec4{v.x, v.y, v.z, 1.0};
+        tri[vert] = gl_position.xyz(); 
+
+        vec3 n = model.normal(face, vert).xyz(); //  An average normal vector based on all faces that the vertex is apart of
+        varying_normals[vert] = normalized((ModelView.invert_transpose() * vec4{n.x, n.y, n.z, 0.0}).xyz());
+        // To transform normal vectors without making it not perpendicular, you have to use the inverse transpose of the same
+        // matrix you use on all the other points. 
+
+        return Perspective * gl_position; // Return the vector in clip space for the rasterize method
+    }
+
+    // Learn Fragment function
+    virtual std::pair<bool, TGAColor> fragment(const vec3 bc) const {
+        // Normal vector based on barycentric coordinates making the shading more smooth since every pixel will be calculated differently
+        // vec3 n = normalized(varying_normals[0] * bc.x + varying_normals[1] * bc.y + varying_normals[2] * bc.z);
+
+        // Normal vector where every pixel has the same vector making it more blocking because it reveals the triangles. Every pixel in
+        // the same triangle will be colored the same final color.
+        vec3 n = normalized(cross(tri[1] - tri[0], tri[2] - tri[0]));
+
+        vec3 lightDir = normalized(vec3{4, 1, 1}); // Light Source
+        double diffuse = std::max(0.0, n * lightDir); // Light Intensity based on how parallel the normal vector is to the light source
+
+        vec3 reflectedLight = 2 * n * (n * lightDir) - lightDir;
+        vec3 view = vec3{1, 0, 2} - vec3{0, 0, 0};
+        double specular = std::max(0.0, reflectedLight * view);
+
+        double ambient = 0.3;
+        double intensity = std::min(1.0, ambient + diffuse + specular);
+        // Every pixel will have at least 30% of the baseColor and if its somewhat facing the light soucre, it will have an increase in intensity
+
+        TGAColor baseColor = color;
+        TGAColor shaded = color;
+        for (int c = 0; c < 3; c++) {
+            shaded[c] = static_cast<unsigned char>(baseColor[c] * intensity);
+        }
+
+        return {false, shaded};
+    }
+};
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " obj/model.obj" << std::endl;
@@ -254,7 +305,7 @@ int main(int argc, char** argv) {
     }
 
     // Rasterize method
-    constexpr vec3 eye{-4, 0, 2}; // camera position
+    const vec3 eye{1, 0, 2}; // camera position
     constexpr vec3 center{0, 0, 0}; // camera direction
     constexpr vec3 up{0, 1, 0}; // camera vertical orientation 
 
@@ -277,13 +328,10 @@ int main(int argc, char** argv) {
 
     for (int m = 1; m < argc; m++) {
         Model model(argv[m]);
-        RandomShader shader(model);
+        PhongShader shader(model);
 
         for (int f = 0; f < model.nfaces(); f++) {
-            shader.color = {    static_cast<unsigned char>(std::rand()%255), 
-                                static_cast<unsigned char>(std::rand()%255), 
-                                static_cast<unsigned char>(std::rand()%255), 
-                                255  };
+            shader.color = {    250, 150, 150, 255  }; // Base Color
 
             Triangle clip = { shader.vertex(f, 0),
                               shader.vertex(f, 1),
@@ -291,7 +339,43 @@ int main(int argc, char** argv) {
 
             rasterize(clip, shader, zbuffer2, framebuffer2, actualZbuffer3);
         }
+    }    
+
+    /*
+    // Rasterize method with rotation (moving model)
+    int x_rotation = 1;
+    int numOfFrames2 = 60;
+
+    for (int frame = 0; frame < numOfFrames2; frame++) {
+        double angle = (2 * M_PI * frame) / numOfFrames2; // full 360 degree orbit across all frames
+        vec3 orbitingEye{ 3 * std::cos(angle), 0, 3 * std::sin(angle) };
+
+        lookat(orbitingEye, center, up);
+        init_perspective(norm(orbitingEye - center));
+
+        TGAImage framebuffer4(width, height, TGAImage::RGB);
+        std::vector<double> zbuffer3(width * height, -std::numeric_limits<double>::max());
+
+        for (int m = 1; m < argc; m++) {
+            Model model(argv[m]);
+            PhongShader shader(model);
+
+            for (int f = 0; f < model.nfaces(); f++) {
+                shader.color = {    250, 150, 150, 255  }; // Ambient Color
+
+                Triangle clip = { shader.vertex(f, 0),
+                                shader.vertex(f, 1),
+                                shader.vertex(f, 2) };
+
+                rasterize(clip, shader, zbuffer3, framebuffer4, actualZbuffer3);
+            }
+        }
+
+        char filename[64];
+        std::sprintf(filename, "frame_%03d.tga", frame);
+        framebuffer4.write_tga_file(filename);
     }
+    */
 
     /*
     // Rotation of the model in real time
