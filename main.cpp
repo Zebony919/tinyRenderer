@@ -251,18 +251,19 @@ struct PhongShader : IShader {
     // Learn Fragment function
     virtual std::pair<bool, TGAColor> fragment(const vec3 bc) const {
         // Normal vector based on barycentric coordinates making the shading more smooth since every pixel will be calculated differently
-        // vec3 n = normalized(varying_normals[0] * bc.x + varying_normals[1] * bc.y + varying_normals[2] * bc.z);
+        vec3 n = normalized(varying_normals[0] * bc.x + varying_normals[1] * bc.y + varying_normals[2] * bc.z);
 
         // Normal vector where every pixel has the same vector making it more blocking because it reveals the triangles. Every pixel in
         // the same triangle will be colored the same final color.
-        vec3 n = normalized(cross(tri[1] - tri[0], tri[2] - tri[0]));
+        // vec3 n = normalized(cross(tri[1] - tri[0], tri[2] - tri[0]));
 
-        vec3 lightDir = normalized(vec3{4, 1, 1}); // Light Source
+        vec3 lightDir = normalized(vec3{1, 1, 1}); // Light Source
         double diffuse = std::max(0.0, n * lightDir); // Light Intensity based on how parallel the normal vector is to the light source
 
         vec3 reflectedLight = 2 * n * (n * lightDir) - lightDir;
-        vec3 view = vec3{1, 0, 2} - vec3{0, 0, 0};
-        double specular = std::max(0.0, reflectedLight * view);
+        vec3 fragPosition = normalized(tri[0] * bc.x + tri[1] * bc.y + tri[2] * bc.z);
+        vec3 view = normalized(vec3{0, 0, 0} - fragPosition);
+        double specular = std::pow(std::max(0.0, reflectedLight.z), 35.0);
 
         double ambient = 0.3;
         double intensity = std::min(1.0, ambient + diffuse + specular);
@@ -271,7 +272,8 @@ struct PhongShader : IShader {
         TGAColor baseColor = color;
         TGAColor shaded = color;
         for (int c = 0; c < 3; c++) {
-            shaded[c] = static_cast<unsigned char>(baseColor[c] * intensity);
+            shaded[c] *= std::min(1.0, ambient + 0.75 * diffuse);
+            shaded[c] *= std::min(1.0, ambient + 0.4 * diffuse + 0.9 * specular);
         }
 
         return {false, shaded};
