@@ -232,51 +232,52 @@ struct PhongShader : IShader {
     TGAColor color = {};
     vec3 tri[3]; // Vertex position in eye/camera space
     vec3 varying_normals[3]; // Normal vector, normalized
+    vec2 varying_uv[3];
+    vec4 lightDir;
 
-    PhongShader(const Model &m) : model(m) {}
+    PhongShader(const vec3 light, const Model &m) : model(m) {
+        lightDir = normalized((ModelView * vec4{light.x, light.y, light.z, 0.0}));
+    }
 
     virtual vec4 vertex(const int face, const int vert) { // Literally just returning a vertex from the model
         vec4 v = model.vert(face, vert);
-        vec4 gl_position = ModelView * vec4{v.x, v.y, v.z, 1.0};
-        tri[vert] = gl_position.xyz(); 
 
         vec3 n = model.normal(face, vert).xyz(); //  An average normal vector based on all faces that the vertex is apart of
         varying_normals[vert] = normalized((ModelView.invert_transpose() * vec4{n.x, n.y, n.z, 0.0}).xyz());
         // To transform normal vectors without making it not perpendicular, you have to use the inverse transpose of the same
         // matrix you use on all the other points. 
 
+        vec4 gl_position = ModelView * model.vert(face, vert);
+        varying_uv[vert] = model.uv(face, vert);
+        tri[vert] = gl_position.xyz(); 
+
         return Perspective * gl_position; // Return the vector in clip space for the rasterize method
     }
 
-    // Learn Fragment function
     virtual std::pair<bool, TGAColor> fragment(const vec3 bc) const {
-        // Normal vector based on barycentric coordinates making the shading more smooth since every pixel will be calculated differently
-        vec3 n = normalized(varying_normals[0] * bc.x + varying_normals[1] * bc.y + varying_normals[2] * bc.z);
-
         // Normal vector where every pixel has the same vector making it more blocking because it reveals the triangles. Every pixel in
         // the same triangle will be colored the same final color.
         // vec3 n = normalized(cross(tri[1] - tri[0], tri[2] - tri[0]));
 
-        vec3 lightDir = normalized(vec3{1, 1, 1}); // Light Source
-        double diffuse = std::max(0.0, n * lightDir); // Light Intensity based on how parallel the normal vector is to the light source
+        vec2 uv = varying_uv[0] * bc[0] + varying_uv[1] * bc[1] + varying_uv[2] * bc[2];
+        TGAColor gl_fragColor = model.diffuse().get(uv.x * model.diffuse().width(), uv.y * model.diffuse().height());
+        
+        vec4 n = normalized(ModelView.invert_transpose() * model.normal(uv)); // Normal vector based on barycentric coordinates making the shading more smooth since every pixel will be calculated differently
+        vec4 reflectedLight = normalized(2 * n * (n * lightDir) - lightDir);
 
-        vec3 reflectedLight = 2 * n * (n * lightDir) - lightDir;
-        vec3 fragPosition = normalized(tri[0] * bc.x + tri[1] * bc.y + tri[2] * bc.z);
-        vec3 view = normalized(vec3{0, 0, 0} - fragPosition);
-        double specular = std::pow(std::max(0.0, reflectedLight.z), 35.0);
+        double lightIntensity = 1.0;
+        double ambient = 0.5; // Every pixel will have at least 30% of the baseColor and if its somewhat facing the light soucre, it will have an increase in intensity
+        double diffuse = std::max(0.0, n * lightDir) * lightIntensity; // Light Intensity based on how parallel the normal vector is to the light source
 
-        double ambient = 0.3;
-        double intensity = std::min(1.0, ambient + diffuse + specular);
-        // Every pixel will have at least 30% of the baseColor and if its somewhat facing the light soucre, it will have an increase in intensity
-
-        TGAColor baseColor = color;
-        TGAColor shaded = color;
-        for (int c = 0; c < 3; c++) {
-            shaded[c] *= std::min(1.0, ambient + 0.75 * diffuse);
-            shaded[c] *= std::min(1.0, ambient + 0.4 * diffuse + 0.9 * specular);
+        double specularStrength = model.specular().get(uv.x * model.specular().width(), uv.y * model.specular().height())[0] / 255.0;
+        double spec = (1.0 + 2. * specularStrength) * std::pow(std::max(0.0, reflectedLight.z), 35.0);
+        
+        for (int c : {0, 1, 2}) {
+            gl_fragColor[c] *= std::min(1.0, ambient + 0.4 * diffuse + 0.9 * spec);
+            // gl_fragColor[c] *= spec;
         }
 
-        return {false, shaded};
+        return {false, gl_fragColor};
     }
 };
 
@@ -307,9 +308,10 @@ int main(int argc, char** argv) {
     }
 
     // Rasterize method
-    const vec3 eye{1, 0, 2}; // camera position
-    constexpr vec3 center{0, 0, 0}; // camera direction
-    constexpr vec3 up{0, 1, 0}; // camera vertical orientation 
+    constexpr vec3  light{ 1, 1, 1}; // light source
+    constexpr vec3    eye{-1, 0, 2}; // camera position
+    constexpr vec3 center{ 0, 0, 0}; // camera direction
+    constexpr vec3     up{ 0, 1, 0}; // camera up vector
 
     lookat(eye, center, up);
     init_perspective(norm(eye - center));
@@ -327,14 +329,12 @@ int main(int argc, char** argv) {
             framebuffer2.set(x, y, backgroundColor);
         }
     }
-
+    
     for (int m = 1; m < argc; m++) {
         Model model(argv[m]);
-        PhongShader shader(model);
+        PhongShader shader(light, model);
 
         for (int f = 0; f < model.nfaces(); f++) {
-            shader.color = {    250, 150, 150, 255  }; // Base Color
-
             Triangle clip = { shader.vertex(f, 0),
                               shader.vertex(f, 1),
                               shader.vertex(f, 2) };
@@ -343,7 +343,7 @@ int main(int argc, char** argv) {
         }
     }    
 
-    /*
+    
     // Rasterize method with rotation (moving model)
     int x_rotation = 1;
     int numOfFrames2 = 60;
@@ -360,7 +360,7 @@ int main(int argc, char** argv) {
 
         for (int m = 1; m < argc; m++) {
             Model model(argv[m]);
-            PhongShader shader(model);
+            PhongShader shader(light, model);
 
             for (int f = 0; f < model.nfaces(); f++) {
                 shader.color = {    250, 150, 150, 255  }; // Ambient Color
@@ -377,7 +377,7 @@ int main(int argc, char** argv) {
         std::sprintf(filename, "frame_%03d.tga", frame);
         framebuffer4.write_tga_file(filename);
     }
-    */
+    
 
     /*
     // Rotation of the model in real time
