@@ -230,8 +230,8 @@ struct RandomShader : IShader {
 struct PhongShader : IShader {
     const Model &model;
     TGAColor color = {};
-    vec3 tri[3]; // Vertex position in eye/camera space
-    vec3 varying_normals[3]; // Normal vector, normalized
+    vec4 tri[3]; // Vertex position in eye/camera space
+    vec4 varying_normals[3]; // Normal vector, normalized
     vec2 varying_uv[3];
     vec4 lightDir;
 
@@ -243,13 +243,13 @@ struct PhongShader : IShader {
         vec4 v = model.vert(face, vert);
 
         vec3 n = model.normal(face, vert).xyz(); //  An average normal vector based on all faces that the vertex is apart of
-        varying_normals[vert] = normalized((ModelView.invert_transpose() * vec4{n.x, n.y, n.z, 0.0}).xyz());
+        varying_normals[vert] = normalized((ModelView.invert_transpose() * vec4{n.x, n.y, n.z, 0.0}));
         // To transform normal vectors without making it not perpendicular, you have to use the inverse transpose of the same
         // matrix you use on all the other points. 
 
         vec4 gl_position = ModelView * model.vert(face, vert);
         varying_uv[vert] = model.uv(face, vert);
-        tri[vert] = gl_position.xyz(); 
+        tri[vert] = gl_position; 
 
         return Perspective * gl_position; // Return the vector in clip space for the rasterize method
     }
@@ -258,23 +258,29 @@ struct PhongShader : IShader {
         // Normal vector where every pixel has the same vector making it more blocking because it reveals the triangles. Every pixel in
         // the same triangle will be colored the same final color.
         // vec3 n = normalized(cross(tri[1] - tri[0], tri[2] - tri[0]));
+        mat<2, 4> E = { tri[1] - tri[0], tri[2] - tri[0] };
+        mat<2, 2> U = { varying_uv[1] - varying_uv[0], varying_uv[2] - varying_uv[0] };
+        mat<2, 4> T = U.invert() * E;
+        mat<4, 4> D = { normalized(T[0]), // Tangent Vector
+                        normalized(T[1]), // Bitangent Vector
+                        normalized(varying_normals[0] * bc[0] + varying_normals[1] * bc[1] + varying_normals[2] * bc[2]), // Normal vector
+                        {0, 0, 0, 1}}; // Fourth term to make it a homogeneous coordinate
 
         vec2 uv = varying_uv[0] * bc[0] + varying_uv[1] * bc[1] + varying_uv[2] * bc[2];
         TGAColor gl_fragColor = model.diffuse().get(uv.x * model.diffuse().width(), uv.y * model.diffuse().height());
         
-        vec4 n = normalized(ModelView.invert_transpose() * model.normal(uv)); // Normal vector based on barycentric coordinates making the shading more smooth since every pixel will be calculated differently
-        vec4 reflectedLight = normalized(2 * n * (n * lightDir) - lightDir);
+        vec4 n = normalized(D.transpose() * model.normal(uv)); // Normal vector based on barycentric coordinates making the shading more smooth since every pixel will be calculated differently
+        vec4 reflectedLight = normalized(n * (n * lightDir) * 2 - lightDir);
 
         double lightIntensity = 1.0;
-        double ambient = 0.5; // Every pixel will have at least 30% of the baseColor and if its somewhat facing the light soucre, it will have an increase in intensity
+        double ambient = 0.5; // Every pixel will have at least 50% of the baseColor and if its somewhat facing the light soucre, it will have an increase in intensity
         double diffuse = std::max(0.0, n * lightDir) * lightIntensity; // Light Intensity based on how parallel the normal vector is to the light source
-
-        double specularStrength = model.specular().get(uv.x * model.specular().width(), uv.y * model.specular().height())[0] / 255.0;
-        double spec = (1.0 + 2. * specularStrength) * std::pow(std::max(0.0, reflectedLight.z), 35.0);
+        double spec = std::pow(std::max(0.0, reflectedLight.z), 35.0);
+        double specular = (.5+2.*sample2D(model.specular(), uv)[0]/255.) * std::pow(std::max(reflectedLight.z, 0.), 35);
         
         for (int c : {0, 1, 2}) {
-            gl_fragColor[c] *= std::min(1.0, ambient + 0.4 * diffuse + 0.9 * spec);
             // gl_fragColor[c] *= spec;
+            gl_fragColor[c] = std::min<int>(255, gl_fragColor[c]*(ambient + diffuse + spec));
         }
 
         return {false, gl_fragColor};
@@ -343,7 +349,7 @@ int main(int argc, char** argv) {
         }
     }    
 
-    
+    /*
     // Rasterize method with rotation (moving model)
     int x_rotation = 1;
     int numOfFrames2 = 60;
@@ -377,6 +383,7 @@ int main(int argc, char** argv) {
         std::sprintf(filename, "frame_%03d.tga", frame);
         framebuffer4.write_tga_file(filename);
     }
+    */
     
 
     /*

@@ -51,6 +51,19 @@ void rasterize(const vec4 clip[3], const IShader &shader, std::vector<double> &z
             if (discard) continue;
 
             zbuffer[x + y * framebuffer.width()] = z;
+
+            /*
+            // Red dot in the middle of every visible triangle. Cool way to see the model is still built from triangle.
+            // Also you should never do direct comparisons with floats since they are not usually exactly equal when logically 
+            // they should be. A fix is to have an epsilon value and compare it to their differences.
+            double epsilon = 0.02;
+            if (std::abs(bc.x - bc.y) < epsilon && std::abs(bc.x - bc.z) < epsilon) {
+                framebuffer.set(x, y, {0, 0, 255, 255});
+            } else {
+                framebuffer.set(x, y, color);
+            }
+            */
+
             framebuffer.set(x, y, color);
             actualZbuffer3.set(x, y, {z2});
         }
