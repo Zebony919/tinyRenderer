@@ -12,7 +12,7 @@
 constexpr int width  = 800;
 constexpr int height = 800;
 
-extern mat<4, 4> ModelView, Perspective;
+extern mat<4, 4> Viewport, ModelView, Perspective;
 extern std::vector<double> zbuffer;
 
 constexpr TGAColor white   = {255, 255, 255, 255}; // attention, BGRA order
@@ -227,6 +227,21 @@ struct RandomShader : IShader {
     }
 };
 
+struct BlankShader : IShader {
+    const Model &model;
+
+    BlankShader(const Model &m) : model(m) {}
+
+    virtual vec4 vertex(const int face, const int vert) {
+        vec4 gl_Position = ModelView * model.vert(face, vert);
+        return Perspective * gl_Position;
+    }
+
+    virtual std::pair<bool,TGAColor> fragment(const vec3 bar) const {
+        return {false, {255, 255, 255, 255}};
+    }
+};
+
 struct PhongShader : IShader {
     const Model &model;
     TGAColor color = {};
@@ -288,7 +303,7 @@ struct PhongShader : IShader {
 };
 
 int main(int argc, char** argv) {
-    if (argc != 2) {
+    if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " obj/model.obj" << std::endl;
         return 1; 
     }
@@ -314,6 +329,9 @@ int main(int argc, char** argv) {
     }
 
     // Rasterize method
+    constexpr int shadowW = 1000;
+    constexpr int shadowH = 1000;
+
     constexpr vec3  light{ 1, 1, 1}; // light source
     constexpr vec3    eye{-1, 0, 2}; // camera position
     constexpr vec3 center{ 0, 0, 0}; // camera direction
@@ -348,6 +366,54 @@ int main(int argc, char** argv) {
             rasterize(clip, shader, zbuffer2, framebuffer2, actualZbuffer3);
         }
     }    
+
+    mat<4, 4> CameraToObject = (Viewport * Perspective * ModelView).invert();
+
+    // Shadow Map
+    lookat(light, center, up);
+    std::vector<double> shadowBuffer(shadowW * shadowH, -std::numeric_limits<double>::max());
+
+    TGAImage lightRender(shadowW, shadowH, TGAImage::RGB);
+    TGAImage lightRenderVisual(shadowW, shadowH, TGAImage::GRAYSCALE);
+
+    for (int m = 1; m < argc; m++) {
+        Model model(argv[m]);
+        BlankShader shader(model);
+
+        for (int f = 0; f < model.nfaces(); f++) {
+            Triangle clip = { shader.vertex(f, 0),
+                              shader.vertex(f, 1),
+                              shader.vertex(f, 2) };
+
+            rasterize(clip, shader, shadowBuffer, lightRender, lightRenderVisual);
+        }
+    }    
+
+    mat<4, 4> objectToLighting = Viewport * Perspective * ModelView;
+
+
+    for (int x=0; x<width; x++) {
+        for (int y=0; y<height; y++) {
+            double camDepth = zbuffer2[x + y * width];
+
+            vec4 fragment = CameraToObject * vec4{(float)x, (float)y, (float)camDepth, 1.0f};
+            vec4 q = objectToLighting * fragment; // Convert Fragment from camera space to light space
+            vec3 p = q.xyz() / q.w;
+            
+            // Use a small bias (- 0.02) to avoid minor precision surface artifacts
+            bool lit = (camDepth < -1e4 ||                                           // Background check (using your default min value)
+                        (p.x < 0 || p.x >= shadowW || p.y < 0 || p.y >= shadowH) || // Out of bounds bounds check
+                        (p.z >= shadowBuffer[int(p.x) + int(p.y) * shadowW] - 0.02)); // Actual shadow depth check
+
+            if (lit) continue;
+
+            TGAColor c = framebuffer2.get(x, y);
+            vec3 a = {c[0], c[1], c[2]};
+            if (norm(a)<80) continue;
+            a = normalized(a)*80;
+            framebuffer2.set(x, y, { static_cast<unsigned char>(a[0]), static_cast<unsigned char>(a[1]), static_cast<unsigned char>(a[2]), 255 });
+        }
+    }
 
     /*
     // Rasterize method with rotation (moving model)
@@ -435,6 +501,9 @@ int main(int argc, char** argv) {
     // New rasterize method
     framebuffer2.write_tga_file("framebuffer2.tga");
     actualZbuffer3.write_tga_file("actualZbuffer3.tga");
+
+    // Shadow Mapping
+    lightRenderVisual.write_tga_file("lightRenderVisual.tga");
     
 
     std::cout << "Rendered successfully, wrote framebuffer.tga\n";
